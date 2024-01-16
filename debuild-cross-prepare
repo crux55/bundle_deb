@@ -1,0 +1,153 @@
+#!/bin/sh
+
+#  Copyright (c) 2006  Volker Grabsch <vog@notjusthosting.com>
+#
+#  Permission is hereby granted, free of charge, to any person obtaining
+#  a copy of this software and associated documentation files (the
+#  "Software"), to deal in the Software without restriction, including
+#  without limitation the rights to use, copy, modify, merge, publish,
+#  distribute, sublicense, and/or sell copies of the Software, and to
+#  permit persons to whom the Software is furnished to do so, subject
+#  to the following conditions:
+#
+#  The above copyright notice and this permission notice shall be
+#  included in all copies or substantial portions of the Software.
+#
+#  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+#  EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+#  MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+#  IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
+#  CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
+#  TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
+#  SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+
+# syntax check
+#
+
+[ "$3" ] || { cat <<EOF
+
+    debuild-cross-prepare - 1.2
+    ===========================
+
+Help to prepare a patch folder for use with debuild-cross.
+
+
+Requires:
+    sed
+
+Syntax:
+    debuild-cross-prepare <debsrc-pkgname> <arch> <host>
+
+Example:
+    debuild-cross-prepare smpeg win32 i586-mingw32msvc
+
+EOF
+exit 1
+}
+
+
+# read parameters
+#
+
+SOURCE=$1
+ARCH=$2
+HOST=$3
+PREFIX=usr/$HOST
+
+
+# look for source folder
+#
+
+echo "looking for: $SOURCE source package"
+VERSION=`ls -1 -d "$SOURCE"*/ | sed -n '1 s!^'"$SOURCE"'-\(.*\)/$!\1! p'`
+[ "$VERSION" ] || { cat <<EOF
+
+Unable to find the unpacked sources of:
+    $SOURCE
+
+EOF
+exit 1
+}
+echo "found: version $VERSION"
+
+
+# create patch folder
+#
+
+echo "creating: patch folder"
+PATCHDIR="patch-$ARCH-$SOURCE"
+mkdir "$PATCHDIR" || { cat <<EOF
+
+Package $SOURCE has already been prepared. Please adjust the files in:
+    $PATCHDIR/debian/
+
+When you are done, try:
+    debuild-cross $SOURCE $ARCH -uc -us
+
+EOF
+exit 1
+}
+
+
+# prepare patch folder
+#
+
+echo "creating: debian/"
+mkdir "$PATCHDIR/debian"
+
+echo "reading: $SOURCE-$VERSION/debian/rules"
+RULES=`cat "$SOURCE-$VERSION/debian/rules"`
+echo "creating: debian/rules"
+cat >"$PATCHDIR/debian/rules" <<EOF
+`echo "$RULES" | sed -n '1,/^$/ p'`
+
+# Cross compiling entries.
+export PATH := /$PREFIX/bin:\$(PATH)
+CC :=
+CXX :=
+CONFIGURE_CROSS_FLAGS := --prefix=/$PREFIX --build=\`dpkg-architecture -qDEB_BUILD_GNU_TYPE\` --host=$HOST
+`echo "$RULES" | sed -n '/^$/,$ p'`
+EOF
+chmod a+x "$PATCHDIR/debian/rules"
+
+echo "reading: $SOURCE-$VERSION/debian/control"
+CONTROL=`cat "$SOURCE-$VERSION/debian/control"`
+DEVPACKAGE=`echo "$CONTROL" | sed -n 's/^Package: \(.*-dev\)$/\1/p' | sed -n '1p'`
+echo "development package name: $DEVPACKAGE"
+echo "creating: debian/control"
+cat >"$PATCHDIR/debian/control" <<EOF
+Source: $ARCH-$SOURCE
+Section: libdevel
+Priority: extra
+Maintainer: 
+`echo "$CONTROL" | sed -n '/^Section:\|^Source:\|^Priority:\|^Maintainer:/ ! p ; /^$/ q'`
+
+Package: $ARCH-$DEVPACKAGE
+Architecture: all
+`echo "$CONTROL" | sed -n '/^Package: '"$DEVPACKAGE"'$/,/^$/ p' | sed -n '/^Package:\|^Architecture:/ ! p ; /^$/ q'`
+ .
+ This package contains the files needed for $ARCH cross compiling.
+EOF
+
+echo "creating: debian/$ARCH-$DEVPACKAGE.install"
+cat >"$PATCHDIR/debian/$ARCH-$DEVPACKAGE.install" <<EOF
+$PREFIX/bin/*-config
+$PREFIX/bin/*.dll
+$PREFIX/include/*
+$PREFIX/lib/*
+EOF
+
+
+# done
+#
+
+cat <<EOF
+
+The patch folder is now prepared. Please adjust the files in:
+    $PATCHDIR/debian/
+
+When you are done, try:
+    debuild-cross $SOURCE $ARCH -uc -us
+
+EOF

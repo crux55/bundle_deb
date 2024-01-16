@@ -1,0 +1,131 @@
+#!/bin/sh
+
+#  Copyright (c) 2006  Volker Grabsch <vog@notjusthosting.com>
+#
+#  Permission is hereby granted, free of charge, to any person obtaining
+#  a copy of this software and associated documentation files (the
+#  "Software"), to deal in the Software without restriction, including
+#  without limitation the rights to use, copy, modify, merge, publish,
+#  distribute, sublicense, and/or sell copies of the Software, and to
+#  permit persons to whom the Software is furnished to do so, subject
+#  to the following conditions:
+#
+#  The above copyright notice and this permission notice shall be
+#  included in all copies or substantial portions of the Software.
+#
+#  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+#  EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+#  MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+#  IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
+#  CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
+#  TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
+#  SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+
+# syntax check
+#
+
+[ "$4" ] || { cat <<EOF
+
+    any2deb - 1.2
+    =============
+
+Create Debian packages from ZIP and TAR files using alien.
+
+
+Syntax:
+    any2deb <package> <version> <source> <prefix> [<alien options>]
+
+Requires:
+    fakeroot, alien, findutils, [unzip, tar, gzip, bzip2]
+
+Examples:
+    any2deb win32-zlib1-dev 1.2.3 zlib-1.2.3-lib.zip /usr/i586-mingw32msvc
+
+    any2deb mplayer-codecs-essential 20050412 \\
+            essential-20050412.tar.bz2 /usr/lib/codecs --fixperms
+
+EOF
+exit 1
+}
+
+
+# read parameters
+#
+
+PACKAGE=$1
+VERSION=$2
+SOURCE=$3
+PREFIX=$4
+
+shift 4  # alien options are now in $@
+
+BUILD=build-$PACKAGE
+TGZPACKAGE=$PACKAGE-$VERSION.tgz
+
+
+# initialize build folder
+#
+
+rm -rf "$BUILD"
+mkdir "$BUILD"
+mkdir "$BUILD/source"
+mkdir "$BUILD/dest"
+
+
+# unpack source package
+#
+
+case "$SOURCE" in
+    *.zip)
+        unzip "$SOURCE" -d "$BUILD/source"
+        ;;
+    *.tar)
+        tar -xv -f "$SOURCE" -C "$BUILD/source"
+        ;;
+    *.tgz|*.tar.gz)
+        tar -xvz -f "$SOURCE" -C "$BUILD/source"
+        ;;
+    *.tar.bz2)
+        tar -xvj -f "$SOURCE" -C "$BUILD/source"
+        ;;
+    *)
+        echo "unsupported file extension of source archive:"
+        echo "    $SOURCE"
+        exit 1
+        ;;
+esac
+
+
+# determine real source folder
+#
+
+BUILD_SOURCE=$BUILD/source
+SUBDIRS=`find "$BUILD_SOURCE" -mindepth 1 -type d`
+[ -n "$SUBDIRS" -a "`echo "$SUBDIRS" | wc -l`" = 1 ] && BUILD_SOURCE=$SUBDIRS
+
+
+# build destination tree
+#
+
+case "$PREFIX" in
+    /)  BUILD_DEST=$BUILD/dest         ;;
+    /*) BUILD_DEST=$BUILD/dest$PREFIX  ;;
+    *)  BUILD_DEST=$BUILD/dest/$PREFIX ;;
+esac
+mkdir -p "$BUILD_DEST"
+rmdir "$BUILD_DEST"
+mv "$BUILD_SOURCE" "$BUILD_DEST"
+
+
+# build debian package
+#
+
+tar -cvz --owner=root --group=root -f "$BUILD/$TGZPACKAGE" -C "$BUILD/dest" .
+fakeroot alien "$@" "$BUILD/$TGZPACKAGE"
+
+
+# remove build folder
+#
+
+rm -rf "$BUILD"
